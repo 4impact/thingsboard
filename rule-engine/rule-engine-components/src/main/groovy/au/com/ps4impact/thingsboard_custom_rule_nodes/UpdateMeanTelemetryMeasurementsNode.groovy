@@ -117,7 +117,11 @@ class UpdateMeanTelemetryMeasurementsNode implements TbNode {
 
         // if mean exceeds threshold, but device isn't currently shown as exceeding, flag device and bump the count
         if (mean > threshold) {
-            if (! exceedsThreshold) {
+            if (exceedsThreshold) {
+                // we're done
+                ctx. tellSuccess msg
+            } else {
+                // mean has just started exceeding threshold
                 saveAttribute(ctx, msg, msg.originator, config.exceedsThresholdAttribute, true,
                         { adjustExceedsThresholdCount ctx, msg, 1 })
             }
@@ -125,8 +129,12 @@ class UpdateMeanTelemetryMeasurementsNode implements TbNode {
         // if mean doesn't exceed threshold, but the device is currently shown as exceeding,
         // unflag the device and drop the count by 1
         } else if (exceedsThreshold) {
+            // mean has just stopped exceeding threshold
             saveAttribute(ctx, msg, msg.originator, config.exceedsThresholdAttribute, false,
                     { adjustExceedsThresholdCount ctx, msg, -1 })
+        } else {
+            // we're done
+            ctx.tellSuccess msg
         }
     }
 
@@ -135,7 +143,7 @@ class UpdateMeanTelemetryMeasurementsNode implements TbNode {
      *
      * Need to look up the current count value first. Default to zero if not set. Count can't go negative.
      *
-     * This is the last step in the async cascade.
+     * This is the last step in the async cascade, so all paths need to exit via ctx.tellSuccess.
      */
     private void adjustExceedsThresholdCount(final TbContext ctx, final TbMsg msg, final int amount) {
         if (amount == 0) {
@@ -161,8 +169,7 @@ class UpdateMeanTelemetryMeasurementsNode implements TbNode {
 
     /**
      * Save an attribute to an entity in server scope. On success call the given success callback, defaulting to
-     * sending a success message through the rule chain. (Note this means this will be the last step in the
-     * async cascade).
+     * sending a success message through the rule chain. (Note this will exit the async cascade).
      *
      * On failure send a failure message through the rule chain (thus ending the cascade).
      */
@@ -176,14 +183,20 @@ class UpdateMeanTelemetryMeasurementsNode implements TbNode {
 
     /**
      * Try to retrieve an underlying value from a chain of one or more Optionals.
-     * If any retrieval fails b/c there's no such value, return a default.
+     * If any retrieval fails b/c there's no such value, or if the retrieved value
+     * is null, return a default.
      */
     private static <T> T defaultVal(final T defaultValue, final Closure optionalsChain) {
+        final T val
         try {
-            optionalsChain.call()
+            val = (T) optionalsChain.call()
         } catch (NoSuchElementException ignored) {
             return defaultValue
+        } catch (NullPointerException ignored) {
+            return defaultValue
         }
+
+        return val ?: defaultValue
     }
 
     @Override
